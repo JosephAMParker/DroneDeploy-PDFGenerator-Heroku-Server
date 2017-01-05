@@ -24,8 +24,8 @@ def hex2RGB(hexcolor,a):
 
 def getTileXY(tileURL):
 
-    tileURL = tileURL.split("ortho_bhd/")[1].split("/")
-    return int(tileURL[1]), int(tileURL[2].split(".")[0])
+    tileURL = tileURL.split("ortho")[1].split("/")
+    return int(tileURL[2]), int(tileURL[3].split(".")[0])
 
 def getXYFromLatLng(geoObject, level):
 
@@ -41,8 +41,18 @@ def getXYFromLatLng(geoObject, level):
 
 def getImageDimensions(planGeo,level):
 
-    x0,y0 = getXYFromLatLng(planGeo[0], level)
-    x2,y2 = getXYFromLatLng(planGeo[2], level)
+    X = []
+    Y = []
+    for g in planGeo:
+        x,y = getXYFromLatLng(g, level)
+        X.append(x)
+        Y.append(y)
+
+    x0 = min(X)
+    y0 = min(Y)
+
+    x2 = max(X)
+    y2 = max(Y)
 
     width = (x2 - x0)*256
     height = (y2 - y0)*256
@@ -64,7 +74,7 @@ def getFont(fontname,fontwidth):
 
 def pasteTiles(image,tiles,map_x,map_y):
 
-    requests = (grequests.get(u) for u in tiles)
+    requests = (grequests.get(u,verify=False) for u in tiles)
     responses = grequests.map(requests)
 
     for i,response in enumerate(responses):
@@ -78,11 +88,13 @@ def pasteTiles(image,tiles,map_x,map_y):
 
 def drawAnnotations(image, annotations,map_x,map_y,width,height,level):
 
-    font = getFont("/Montserrat-Bold.ttf",width*0.02)
-    r = width * 0.02
+    size = max(width,height)
+    font = getFont("/Montserrat-Bold.ttf",size*0.02)
+    r = size * 0.02 #radius of label
     A = 65
 
     # draw all annotations. xMiddle, yMiddle is the coordinates of the label for each annotation.
+    # annotations drawn onto a mask image 'poly'. 'poly' is then pasted onto the map image. 
     # volume/area: middle of all points. 
     # line:        end point of middle line.
     # location     coords of the location
@@ -127,6 +139,7 @@ def drawAnnotations(image, annotations,map_x,map_y,width,height,level):
             xMiddle /= len(annotation['geometry'])
             yMiddle /= len(annotation['geometry'])
 
+        #Label for each annotation: A circle with the annotaions letter in the center. 
         pdraw.ellipse( [(xMiddle-map_x)*256-r, (yMiddle-map_y)*256-r, (xMiddle-map_x)*256+r, (yMiddle-map_y)*256+r], fill=annotation['color'])
         pdraw.text( ((xMiddle-map_x)*256-r*0.4,(yMiddle-map_y)*256-r*0.8), chr(A+a),font=font)
 
@@ -155,8 +168,17 @@ class MainHandler(tornado.web.RequestHandler):
         image = drawAnnotations(image,annotations,map_x,map_y,width,height,level)
 
 
-        new_width = 1800 #image on client side is printed as 1800 px across
-        new_height = int(height * new_width / width)
+        if width > height:
+            new_width = 1800 #image on client side is printed as 1800 px across
+            new_height = int(height * new_width / width)
+
+        else:
+            new_height = 1800  
+            new_width = int(width * new_height / height)
+
+        print(map_x,map_y,width,height)
+        print(new_height,new_width)
+
         image=image.resize((new_width,new_height))
         outputBuffer = BytesIO()
         image.save(outputBuffer, format='JPEG')
@@ -165,6 +187,7 @@ class MainHandler(tornado.web.RequestHandler):
         out = {}
         out['image'] = 'data:image/jpeg;base64,' + base64.b64encode(bgBase64Data).decode()
         out['new_height'] = new_height
+        out['new_width']  = new_width
         self.write(json.dumps(out))
 
     def set_default_headers(self):
